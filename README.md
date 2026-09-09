@@ -108,10 +108,10 @@ O'qitish davomida kuzatiladigan ko'rsatkichlar:
 ## Demo
 
 **Odam vs AI:**
-<video src="content/demo1.mp4" width="700" controls></video>
+[demo1.mp4](content/demo1.mp4)
 
 **AI vs AI:**
-<video src="content/demo2.mp4" width="700" controls></video>
+[demo2.mp4](content/demo2.mp4)
 
 ## Litsenziya
 
