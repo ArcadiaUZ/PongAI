@@ -1,42 +1,36 @@
 """
-AI ni o'qitish - Pong o'yini
-AI o'z-o'zini o'rganadi
+AI ni o'qitish - Pong o'yini (PARALLEL)
+Bir vaqtda N ta o'yin muhiti ishlaydi, GPU dan samarali foydalanadi
 """
 
-import pygame
 import sys
 import random
+import time
 import numpy as np
-from ai_brain import AIBrain
+import torch
+from ai_brain import AIBrain, device
 
-# Pygame ni ishga tushirish
-pygame.init()
-
-# Oynaning o'lchamlari
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-FPS = 60
 
-# Ranglar
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-GREEN = (0, 255, 0)
+NUM_ENVS = 8
+BATCH_SIZE = 256
+replay_steps = 4          # Har qadamda nechta replay
 
 class Ball:
     def __init__(self):
         self.reset()
         self.radius = 10
-        
+
     def reset(self):
         self.x = SCREEN_WIDTH // 2
         self.y = SCREEN_HEIGHT // 2
         self.speed_x = random.choice([-5, 5])
         self.speed_y = random.choice([-3, -2, -1, 1, 2, 3])
-        
+
     def move(self):
         self.x += self.speed_x
         self.y += self.speed_y
-        
         if self.y <= 0 or self.y >= SCREEN_HEIGHT:
             self.speed_y *= -1
 
@@ -48,241 +42,235 @@ class Paddle:
         self.height = 90
         self.speed = 8
         self.score = 0
-        
+
     def move_up(self):
         self.y -= self.speed
         if self.y < 0:
             self.y = 0
-            
+
     def move_down(self):
         self.y += self.speed
         if self.y > SCREEN_HEIGHT - self.height:
             self.y = SCREEN_HEIGHT - self.height
 
-
-class TrainPong:
+class Env:
+    """Bitta Pong muhiti"""
     def __init__(self):
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("AI O'qitish - Pong")
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.Font(None, 36)
-        
+        self.reset()
+
+    def reset(self):
+        self.ball = Ball()
+        self.ai_paddle = Paddle(SCREEN_WIDTH - 65)
+        self.opponent = Paddle(50)
+        self.done = False
+        self.steps = 0
+        self.max_steps = 500
+        self.last_action = 2
+        self.ai_wins = 0
+        self.opp_wins = 0
+
+    def get_state(self):
+        return np.array([
+            self.ball.x / SCREEN_WIDTH,
+            self.ball.y / SCREEN_HEIGHT,
+            self.ball.speed_x / 10,
+            self.ball.speed_y / 10,
+            self.ai_paddle.y / SCREEN_HEIGHT
+        ], dtype=np.float32)
+
+    def update_opponent(self):
+        """Raqib - kuchli, barqaror (98%)"""
+        paddle_center = self.opponent.y + self.opponent.height // 2
+        if self.ball.speed_x < 0:
+            time_to_reach = abs(self.ball.x / self.ball.speed_x) if self.ball.speed_x != 0 else 0
+            predicted_y = self.ball.y + self.ball.speed_y * time_to_reach
+            while predicted_y < 0 or predicted_y > SCREEN_HEIGHT:
+                if predicted_y < 0:
+                    predicted_y = -predicted_y
+                elif predicted_y > SCREEN_HEIGHT:
+                    predicted_y = 2 * SCREEN_HEIGHT - predicted_y
+            target_y = predicted_y
+        else:
+            target_y = SCREEN_HEIGHT // 2
+
+        if random.random() < 0.98:
+            if target_y < paddle_center - 5:
+                self.opponent.move_up()
+            elif target_y > paddle_center + 5:
+                self.opponent.move_down()
+
+    def do_action(self, action):
+        """Harakatni bajarib, (reward, next_state, done, info) qaytaradi"""
+        if action == 0:
+            self.ai_paddle.move_up()
+        elif action == 1:
+            self.ai_paddle.move_down()
+
+        self.update_opponent()
+        self.ball.move()
+        self.steps += 1
+
+        reward = self.get_reward(action)
+
+        # To'qnashuvlar va hisob
+        if (self.ball.x - self.ball.radius <= self.opponent.x + self.opponent.width and
+            self.opponent.y < self.ball.y < self.opponent.y + self.opponent.height):
+            self.ball.speed_x *= -1
+
+        if (self.ball.x + self.ball.radius >= self.ai_paddle.x and
+            self.ai_paddle.y < self.ball.y < self.ai_paddle.y + self.ai_paddle.height):
+            self.ball.speed_x *= -1
+
+        if self.ball.x < 0:
+            self.ai_wins += 1
+            self.ball.reset()
+        elif self.ball.x > SCREEN_WIDTH:
+            self.opp_wins += 1
+            self.ball.reset()
+            self.opponent.move_down()
+
+        self.last_action = action
+
+        done = False
+        if self.ai_wins >= 5 or self.opp_wins >= 5:
+            done = True
+        elif self.steps >= self.max_steps:
+            done = True
+
+        return reward, self.get_state(), done
+
+    def get_reward(self, action):
+        """Mukofot tizimi"""
+        paddle_center = self.ai_paddle.y + self.ai_paddle.height // 2
+        distance = abs(self.ball.y - paddle_center)
+        aligned = distance < 30
+
+        if (self.ball.x + self.ball.radius >= self.ai_paddle.x and
+            self.ai_paddle.y < self.ball.y < self.ai_paddle.y + self.ai_paddle.height):
+            return +5.0
+
+        if self.ball.x > SCREEN_WIDTH:
+            return -5.0
+
+        normalized = min(distance / SCREEN_HEIGHT, 1.0)
+        reward = 0.0
+
+        if self.ball.speed_x > 0:
+            reward = (1.0 - normalized) * 0.3
+            if aligned and action == 2:
+                reward += 0.5
+            elif aligned and action != 2:
+                reward -= 0.15
+        else:
+            reward = (1.0 - normalized) * 0.1
+
+        if aligned and action != self.last_action:
+            reward -= 0.15
+
+        return reward
+
+class TrainPongParallel:
+    def __init__(self):
         self.ai_brain = AIBrain()
         self.model_file = "pong_ai_model.pt"
         self.checkpoint_file = "training_checkpoint.txt"
-        
-        # Checkpoint dan yuklash
+
         self.start_episode = self.load_checkpoint()
         self.max_episodes = self.start_episode + 100000
-        
+        self.envs = [Env() for _ in range(NUM_ENVS)]
+        self.stats = {'env_wins': 0, 'env_wins_episodes': 0}
+
     def load_checkpoint(self):
-        """Checkpoint dan o'qitishni davom etirish"""
         try:
             with open(self.checkpoint_file, 'r') as f:
                 start_episode = int(f.read().strip())
                 print(f"[CHECKPOINT] {start_episode} epizoddan davom etiladi...")
-                # Modelni yuklash
                 if self.ai_brain.load(self.model_file):
                     return start_episode
         except:
             pass
         print("[CHECKPOINT] Yangi o'qitish boshlanmoqda...")
         return 0
-    
+
     def save_checkpoint(self, episode):
-        """Checkpoint ni saqlash"""
         with open(self.checkpoint_file, 'w') as f:
             f.write(str(episode))
-    
-    def reset_game(self):
-        self.ball = Ball()
-        self.ai_paddle = Paddle(SCREEN_WIDTH - 65)
-        self.opponent = Paddle(50)
-        self.done = False
-        self.steps = 0
-        self.max_steps = 300
-        
-    def get_reward(self):
-        """Mukofot tizimi - AI ni rag'batlantiruvchi"""
-        # To'pni ushlab qolsa - katta mukofot
-        if (self.ball.x + self.ball.radius >= self.ai_paddle.x and
-            self.ai_paddle.y < self.ball.y < self.ai_paddle.y + self.ai_paddle.height):
-            return +1.0
-        
-        # To'pni o'tkazib yuborsa - katta jarima
-        if self.ball.x > SCREEN_WIDTH:
-            return -1.0
-        
-        # To'pni kuzatish uchun mukofot
-        # AI raketkasi markazidan to'p gacha bo'lgan masofa
-        paddle_center = self.ai_paddle.y + self.ai_paddle.height // 2
-        distance = abs(self.ball.y - paddle_center)
-        
-        # Normalizatsiya: 0 (yaqin) dan 1 (uzoq) gacha
-        max_dist = SCREEN_HEIGHT
-        normalized = min(distance / max_dist, 1.0)
-        
-        # Yaqin bo'lsa yaxshi, uzoq bo'sa yomon
-        # Kichik qo'shimcha mukofot: to'p AI tomon kelyapsa, markazda turish yaxshi
-        if self.ball.speed_x > 0:  # To'p AI tomon kelyapti
-            # Markazda turish yaxshi tayyorgarlik uchun
-            center_distance = abs(paddle_center - SCREEN_HEIGHT // 2)
-            center_normalized = min(center_distance / (SCREEN_HEIGHT // 2), 1.0)
-            return (1.0 - normalized) * 0.1 - center_normalized * 0.05
-        
-        return (1.0 - normalized) * 0.1
-        
-    def update_opponent(self):
-        """Raqib (o'rtacha AI) harakati - AI ga qiyinroq bo'lish uchun"""
-        # Raqib to'pni kuzatadi, lekin ba'zan xato qiladi
-        paddle_center = self.opponent.y + self.opponent.height // 2
-        
-        # To'pning kelish yo'nalishini hisoblash
-        if self.ball.speed_x < 0:  # To'p raqib tomon kelyapti
-            # To'pning keladigan joyini bashorat qilish
-            time_to_reach = abs(self.ball.x / self.ball.speed_x) if self.ball.speed_x != 0 else 0
-            predicted_y = self.ball.y + self.ball.speed_y * time_to_reach
-            
-            # Chegaralardan qaytishni hisoblash
-            while predicted_y < 0 or predicted_y > SCREEN_HEIGHT:
-                if predicted_y < 0:
-                    predicted_y = -predicted_y
-                elif predicted_y > SCREEN_HEIGHT:
-                    predicted_y = 2 * SCREEN_HEIGHT - predicted_y
-            
-            target_y = predicted_y
-        else:
-            # To'p uzoqqa ketmoqda, markazga qayt
-            target_y = SCREEN_HEIGHT // 2
-        
-        # Raqib harakati (sekinroq - AI ga imkon berish uchun)
-        if random.random() < 0.85:  # 85% daqiqlik
-            if target_y < paddle_center - 5:
-                self.opponent.move_up()
-            elif target_y > paddle_center + 5:
-                self.opponent.move_down()
-
-    def check_collisions(self):
-        # To'p va raqib raketkasi
-        if (self.ball.x - self.ball.radius <= self.opponent.x + self.opponent.width and
-            self.opponent.y < self.ball.y < self.opponent.y + self.opponent.height):
-            self.ball.speed_x *= -1
-            
-        # To'p va AI raketkasi
-        if (self.ball.x + self.ball.radius >= self.ai_paddle.x and
-            self.ai_paddle.y < self.ball.y < self.ai_paddle.y + self.ai_paddle.height):
-            self.ball.speed_x *= -1
-            
-        # Hisob
-        if self.ball.x < 0:
-            self.ai_paddle.score += 1
-            self.ball.reset()
-        elif self.ball.x > SCREEN_WIDTH:
-            self.opponent.score += 1
-            self.ball.reset()
-            self.opponent.move_down()
 
     def train(self):
-        """AI ni o'qitish"""
-        print("AI o'qitish boshlandi...")
+        print("PARALLEL AI o'qitish boshlandi!")
+        print(f"Parallel muhitlar: {NUM_ENVS}")
         print(f"Epizodlar: {self.start_episode} dan {self.max_episodes} gacha")
-        
-        for episode in range(self.start_episode, self.max_episodes):
-            self.reset_game()
-            state = self.ai_brain.get_state(self.ball, self.ai_paddle)
-            total_reward = 0
-            
-            while not self.done and self.steps < self.max_steps:
-                # AI harakatni tanlaydi
-                action = self.ai_brain.get_action(state)
-                
-                # Harakatni bajarish
-                if action == 0:  # Yuqoriga
-                    self.ai_paddle.move_up()
-                elif action == 1:  # Pastga
-                    self.ai_paddle.move_down()
-                # action == 2: Turish
-                
-                # O'yin holatini yangilash
-                self.update_opponent()
-                self.ball.move()
-                self.check_collisions()
-                self.steps += 1
-                
-                # Yangi holat va mukofot
-                next_state = self.ai_brain.get_state(self.ball, self.ai_paddle)
-                reward = self.get_reward()
-                total_reward += reward
-                
-                # Xotiraga saqlash
-                self.ai_brain.remember(state, action, reward, next_state, self.done)
-                
-                state = next_state
-                
-                # O'yin tugashi
-                if self.ai_paddle.score >= 5 or self.opponent.score >= 5:
-                    self.done = True
-                    
-            # Tajribadan o'rganish
-            self.ai_brain.replay(64)
-            
-            # Natijalarni ko'rsatish
-            if episode % 100 == 0:
-                print(f"Epizod: {episode}/{self.max_episodes}, Mukofot: {total_reward:.2f}, Epsilon: {self.ai_brain.epsilon:.3f}")
-                
-            # Modelni va checkpoint ni saqlash
-            if episode % 1000 == 0:
-                self.ai_brain.save("pong_ai_model.pt")
-                self.save_checkpoint(episode)
-                print(f"Model va checkpoint saqlandi: {episode}")
-                
-        print("O'qitish tugadi!")
-        self.ai_brain.save("pong_ai_model.pt")
-        self.save_checkpoint(self.max_episodes)
-        print("Yangi model saqlandi! Eski model almashtirildi.")
+        print(f"Batch: {BATCH_SIZE} | Replay/step: {replay_steps}")
 
-    def visualize_training(self):
-        """O'qitishni ko'rsatish"""
-        self.reset_game()
-        state = self.ai_brain.get_state(self.ball, self.ai_paddle)
-        
-        running = True
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                        
-            # AI harakat
-            action = self.ai_brain.get_action(state)
-            if action == 0:
-                self.ai_paddle.move_up()
-            elif action == 1:
-                self.ai_paddle.move_down()
-                
-            # O'yin yangilash
-            self.update_opponent()
-            self.ball.move()
-            self.check_collisions()
-            
-            # Chizish
-            self.screen.fill(BLACK)
-            pygame.draw.circle(self.screen, WHITE, (int(self.ball.x), int(self.ball.y)), self.ball.radius)
-            pygame.draw.rect(self.screen, WHITE, (self.opponent.x, self.opponent.y, self.opponent.width, self.opponent.height))
-            pygame.draw.rect(self.screen, GREEN, (self.ai_paddle.x, self.ai_paddle.y, self.ai_paddle.width, self.ai_paddle.height))
-            
-            # Hisob
-            score_text = self.font.render(f"AI: {self.ai_paddle.score} | Raqib: {self.opponent.score}", True, WHITE)
-            self.screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, 20))
-            
-            pygame.display.flip()
-            self.clock.tick(FPS)
-            
-        pygame.quit()
+        episode = self.start_episode
+        total_steps = 0
+        episode_rewards = np.zeros(NUM_ENVS)
+        episode_count = 0
+        start_time = time.time()
+
+        states = np.stack([e.get_state() for e in self.envs])
+        done_flags = [False] * NUM_ENVS
+
+        while episode < self.max_episodes:
+            states_tensor = torch.FloatTensor(states).to(device)
+            actions = self.ai_brain.get_actions_batch(states_tensor)
+
+            next_states = np.zeros_like(states)
+            rewards = np.zeros(NUM_ENVS)
+            dones = np.zeros(NUM_ENVS, dtype=bool)
+
+            for i in range(NUM_ENVS):
+                if not done_flags[i]:
+                    r, ns, d = self.envs[i].do_action(int(actions[i]))
+                    next_states[i] = ns
+                    rewards[i] = r
+                    dones[i] = d
+                    episode_rewards[i] += r
+                    total_steps += 1
+
+            self.ai_brain.remember_batch(states, actions, rewards, next_states, dones)
+
+            # Replay (bir necha marta)
+            for _ in range(replay_steps):
+                self.ai_brain.replay(BATCH_SIZE)
+
+            states = next_states
+
+            # Tugatilgan muhitlarni qayta boshlash
+            for i in range(NUM_ENVS):
+                if done_flags[i] or dones[i]:
+                    episode += 1
+                    episode_count += 1
+                    self.ai_brain.decay_epsilon()
+                    if self.envs[i].ai_wins > self.envs[i].opp_wins:
+                        self.stats['env_wins'] += 1
+                    ep_rew = episode_rewards[i]
+                    episode_rewards[i] = 0
+                    self.envs[i].reset()
+                    done_flags[i] = False
+                    states[i] = self.envs[i].get_state()
+
+                    if episode % 100 == 0:
+                        elapsed = time.time() - start_time
+                        speed = total_steps / elapsed if elapsed > 0 else 0
+                        print(f"Epizod: {episode}/{self.max_episodes}, "
+                              f"O'rt.mukofot: {ep_rew:.2f}, "
+                              f"Yutuq: {self.stats['env_wins']}/{episode_count}, "
+                              f"Epsilon: {self.ai_brain.epsilon:.3f}, "
+                              f"Tezlik: {speed:.0f} qadam/s")
+
+                    if episode % 1000 == 0:
+                        self.ai_brain.save(self.model_file)
+                        self.save_checkpoint(episode)
+                        print(f"Model va checkpoint saqlandi: {episode}")
+
+            done_flags = dones
+
+        print("O'qitish tugadi!")
+        self.ai_brain.save(self.model_file)
+        self.save_checkpoint(self.max_episodes)
+        print("Yangi model saqlandi!")
 
 if __name__ == "__main__":
-    trainer = TrainPong()
+    trainer = TrainPongParallel()
     trainer.train()
-    print("O'qitish tugadi! Endi 'play_with_ai.bat' ni ishga tushiring.")

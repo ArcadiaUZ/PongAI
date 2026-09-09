@@ -38,18 +38,19 @@ class NeuralNetwork(nn.Module):
         return x
 
 class AIBrain:
-    def __init__(self):
+    def __init__(self, hidden_size=128):
         # Kirish: to'p pozitsiyasi, tezligi, AI raketkasi pozitsiyasi
         # Chiqish: harakat (yuqoriga, pastga, turish)
-        self.brain = NeuralNetwork(input_size=5, hidden_size=32, output_size=3).to(device)
-        self.target_brain = NeuralNetwork(input_size=5, hidden_size=32, output_size=3).to(device)
+        self.hidden_size = hidden_size
+        self.brain = NeuralNetwork(input_size=5, hidden_size=hidden_size, output_size=3).to(device)
+        self.target_brain = NeuralNetwork(input_size=5, hidden_size=hidden_size, output_size=3).to(device)
         self.target_brain.load_state_dict(self.brain.state_dict())
         self.optimizer = optim.Adam(self.brain.parameters(), lr=0.001)
         self.loss_fn = nn.MSELoss()
-        self.memory = deque(maxlen=100000)
+        self.memory = deque(maxlen=200000)
         self.epsilon = 0.1  # Eksploratsiya (0.1 dan boshlanadi)
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.99995
+        self.epsilon_decay = 0.99997
         self.gamma = 0.95  # Discount factor
         self.target_update = 0
         
@@ -65,17 +66,40 @@ class AIBrain:
         return torch.FloatTensor(state).unsqueeze(0).to(device)
     
     def get_action(self, state):
-        """Harakatni tanlash"""
+        """Harakatni tanlash (bitta muhit) - int qaytaradi"""
         if random.random() < self.epsilon:
             return random.randint(0, 2)  # Tasodifiy harakat
-        
         with torch.no_grad():
             q_values = self.brain(state)
             return q_values.argmax().item()
     
+    def _explore_or_exploit(self, q_values):
+        """Epsilon-greedy: batchni teskarisiz boshqaradi"""
+        actions = q_values.argmax(dim=-1).cpu().numpy()
+        # Tasodifiy tanlab olish (epsilon bo'yicha)
+        rand = np.random.random(actions.shape[0])
+        replace = rand < self.epsilon
+        if replace.any():
+            actions[replace] = np.random.randint(0, q_values.shape[-1], size=replace.sum())
+        return actions
+    
+    def get_actions_batch(self, states):
+        """Parallel muhitlar uchun harakatlarni olish (batch)"""
+        with torch.no_grad():
+            q_values = self.brain(states)
+            return self._explore_or_exploit(q_values)
+    
     def remember(self, state, action, reward, next_state, done):
-        """Xotiraga saqlash"""
+        """Xotiraga saqlash (bitta)"""
         self.memory.append((state, action, reward, next_state, done))
+    
+    def remember_batch(self, states, actions, rewards, next_states, dones):
+        """Parallel muhitlar tajribasini xotiraga saqlash"""
+        states_t = torch.FloatTensor(states).to(device)
+        next_states_t = torch.FloatTensor(next_states).to(device)
+        for i in range(len(actions)):
+            self.memory.append((states_t[i].unsqueeze(0), actions[i], rewards[i],
+                                next_states_t[i].unsqueeze(0), bool(dones[i])))
     
     def replay(self, batch_size=128):
         """Tajribadan o'rganish - GPU da (Double DQN)"""
@@ -111,7 +135,9 @@ class AIBrain:
         self.target_update += 1
         if self.target_update % 100 == 0:
             self.target_brain.load_state_dict(self.brain.state_dict())
-        
+    
+    def decay_epsilon(self):
+        """Epsilonni har bir epizodda kamaytirish (parallel o'qitish uchun)"""
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
     
