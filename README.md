@@ -105,14 +105,6 @@ O'qitish davomida kuzatiladigan ko'rsatkichlar:
 - Epsilon kamayishi (0.1 → 0.01)
 - Yutuq foizi oshishi
 
-## Demo
-
-**Odam vs AI:**
-[demo1.mp4](content/demo1.mp4)
-
-**AI vs AI:**
-[demo2.mp4](content/demo2.mp4)
-
 ## Litsenziya
 
 MIT
