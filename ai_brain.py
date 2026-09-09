@@ -1,7 +1,7 @@
 """
-AI Brain - Neyron tarmoq (PyTorch GPU)
+AI Brain - Neyron tarmoq (PyTorch)
 Pong o'yinini o'rganadigan AI
-Har doim GPU (CUDA) ishlatadi
+GPU (CUDA) yoki CPU da ishlaydi
 """
 
 import numpy as np
@@ -11,11 +11,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# GPU ni tekshirish
+# Qurilmani tekshirish
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"[GPU] Qurilma: {device}")
+print(f"[DEVICE] Qurilma: {device}")
 if torch.cuda.is_available():
     print(f"[GPU] {torch.cuda.get_device_name(0)} ({torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB)")
+else:
+    print("[CPU] GPU topilmadi, CPU ishlatiladi")
 
 class NeuralNetwork(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):

@@ -1,14 +1,14 @@
 # Pong AI 🎮
 
-AI bilan Pong o'yini. Neyron tarmoq (PyTorch) va Reinforcement Learning (Double DQN) asosida.
+AI bilan Pong o'yini. Neyron tarmoq (PyTorch) va Reinforcement Learning (Double DQN) asosida. **GPU** yoki **CPU** da ishlaydi.
 
 ## 🚀 Xususiyatlar
 
-- **GPU qo'llab-quvvatlashari** - NVIDIA RTX 3060+
+- **GPU/CPU** - NVIDIA GPU yoki CPU da ishlash
 - **Double DQN** - Barqaror AI o'rganish
 - **Checkpoint tizimi** - O'qitishni davom ettirish
 - **Real-vaqt vizualizatsiyasi** - AI neyron tarmogini ko'rish
-- **Saves/loads models** - PyTorch formatda
+- **PyTorch** formatda model saqlash
 
 ## 📦 O'rnatish
 
@@ -19,18 +19,25 @@ pip install pygame numpy torch
 
 ### 2. GPU uchun (CUDA):
 ```bash
-# PyTorch GPU versiyasini o'rnatish
+# PyTorch GPU versiyasini o'rnatish (agar GPU bor bolsa)
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ## 🎮 Ishga tushirish
 
-### AI ni o'qitish:
+### CPU da o'qitish:
 ```bash
 python train_ai.py
 ```
-- 10,000 epizod GPU da (~5-7 daqiqa)
+- 10,000 epizod (~15-20 daqiqa CPU da)
 - Avtomatik checkpoint saqlanadi
+
+### GPU da o'qitish (tezroq):
+```bash
+python train_ai.py
+```
+- 10,000 epizod GPU da (~3-5 daqiqa)
+- RTX 3060+ dan foydalanadi
 
 ### AI bilan o'ynash:
 ```bash
@@ -42,7 +49,7 @@ python play_pong.py
 | Fayl | Tavsif |
 |------|--------|
 | `pong_game.py` | Oddiy Pong o'yini |
-| `ai_brain.py` | Neyron tarmoq (PyTorch GPU) |
+| `ai_brain.py` | Neyron tarmoq (PyTorch GPU/CPU) |
 | `train_ai.py` | AI ni o'qitish |
 | `play_pong.py` | AI bilan o'yin + vizualizatsiya |
 | `visualize_ai.py` | Alohida AI vizualizatsiya oynasi |
@@ -90,11 +97,4 @@ O'qitish davomida kuzating:
 
 ## 📄 Litsenziya
 
-Ushbu loyiha **MIT** litsenziyasi ostida tarqatiladi.
-
-## 🤝 Hissadoshlik
-
-- Pong o'yini
-- Neyron tarmoqlari (PyTorch)
-- Q-learning / Deep Q-Network
-- Double DQN
+Ushbu loyiha MIT litsenziyasi ostida tarqatiladi.
