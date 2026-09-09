@@ -29,6 +29,7 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 ```bash
 python train_ai.py
 ```
+yoki start_training.bat ga ikki marta bosish
 - **GPU** da: 10,000 epizod (~3-5 daqiqa, RTX 3060+)
 - **CPU** da: 10,000 epizod (~15-20 daqiqa)
 - Avtomatik ravishda GPU yoki CPU dan foydalanadi
@@ -38,6 +39,7 @@ python train_ai.py
 ```bash
 python play_pong.py
 ```
+yoki play_with_ai.bat ga ikki marta bosish
 
 ## 📁 Fayllar
 
