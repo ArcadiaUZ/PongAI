@@ -25,19 +25,14 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 
 ## 🎮 Ishga tushirish
 
-### CPU da o'qitish:
+### AI ni o'qitish:
 ```bash
 python train_ai.py
 ```
-- 10,000 epizod (~15-20 daqiqa CPU da)
+- **GPU** da: 10,000 epizod (~3-5 daqiqa, RTX 3060+)
+- **CPU** da: 10,000 epizod (~15-20 daqiqa)
+- Avtomatik ravishda GPU yoki CPU dan foydalanadi
 - Avtomatik checkpoint saqlanadi
-
-### GPU da o'qitish (tezroq):
-```bash
-python train_ai.py
-```
-- 10,000 epizod GPU da (~3-5 daqiqa)
-- RTX 3060+ dan foydalanadi
 
 ### AI bilan o'ynash:
 ```bash
