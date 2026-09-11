@@ -1,5 +1,5 @@
 """
-AI vs AI - Pong o'yini
+AI vs AI - Pong o'yini (4x kuchaytirilgan)
 Yangi AI (chap) vs Eski AI (o'ng) - ikkala neyron tarmog'i vizualizatsiyasi
 """
 
@@ -8,7 +8,7 @@ import sys
 import random
 import numpy as np
 import torch
-from ai_brain import AIBrain, device
+from ai_brain import AIBrain, device, INPUT_SIZE
 
 pygame.init()
 
@@ -79,32 +79,33 @@ class Paddle:
 class AIVsAI:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("AI vs AI - Yangi (Chap) vs Eski (O'ng)")
+        pygame.display.set_caption("AI vs AI - 4x Kuchaytirilgan")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 28)
         self.big_font = pygame.font.Font(None, 64)
         self.small_font = pygame.font.Font(None, 16)
         self.tiny_font = pygame.font.Font(None, 14)
 
-        # Yangi AI (chap taraf) - root dagi model (128 hidden)
-        self.ai_left = AIBrain(hidden_size=128)
+        self.ai_left = AIBrain(hidden_size=512)
         self.ai_left.load("pong_ai_model.pt")
-        print("[OK] Yangi AI yuklandi (chap taraf)")
+        print("[OK] Chap AI yuklandi (hidden=512)")
 
-        # Yangi AI (o'ng taraf) - xuddi shu model bilan
-        self.ai_right = AIBrain(hidden_size=128)
+        self.ai_right = AIBrain(hidden_size=512)
         self.ai_right.load("pong_ai_model.pt")
-        print("[OK] Yangi AI yuklandi (o'ng taraf)")
+        print("[OK] O'ng AI yuklandi (hidden=512)")
 
-        self.input_names = ["To'p X", "To'p Y", "Tez X", "Tez Y", "AI Y"]
+        self.input_names = [
+            "To'p X", "To'p Y", "Tez X", "Tez Y", "AI Y",
+            "Raqib Y", "Masofa", "Vert Dif", "Kelyapti", "Last Act"
+        ]
         self.output_names = ["Yuqori", "Pastga", "Turish"]
 
         self.left_q_values = [0, 0, 0]
         self.left_action = 2
-        self.left_input_state = [0, 0, 0, 0, 0]
+        self.left_input_state = [0] * INPUT_SIZE
         self.right_q_values = [0, 0, 0]
         self.right_action = 2
-        self.right_input_state = [0, 0, 0, 0, 0]
+        self.right_input_state = [0] * INPUT_SIZE
 
         self.reset_game()
 
@@ -133,23 +134,43 @@ class AIVsAI:
         return True
 
     def get_left_state(self):
-        """Chap AI uchun holat (o'ng tomondan o'qitilgan model uchun aynalangan)"""
+        mirrored_ball_x = 1.0 - self.ball.x / GAME_WIDTH
+        mirrored_ball_y = self.ball.y / GAME_HEIGHT
+        mirrored_speed_x = -self.ball.speed_x / 10
+        mirrored_speed_y = self.ball.speed_y / 10
+        mirrored_paddle_y = self.left_paddle.y / GAME_HEIGHT
+        opponent_y = self.right_paddle.y / GAME_HEIGHT
+        mirrored_paddle_center = (self.left_paddle.y + self.left_paddle.height / 2) / GAME_HEIGHT
+        mirrored_paddle_x_norm = (GAME_WIDTH - self.left_paddle.x - self.left_paddle.width) / GAME_WIDTH
+        dist = mirrored_ball_x - mirrored_paddle_x_norm
+        vert_diff = mirrored_ball_y - mirrored_paddle_center
+        coming = 1.0 if self.ball.speed_x < 0 else 0.0
         return [
-            1.0 - self.ball.x / GAME_WIDTH,
-            self.ball.y / GAME_HEIGHT,
-            -self.ball.speed_x / 10,
-            self.ball.speed_y / 10,
-            self.left_paddle.y / GAME_HEIGHT
+            mirrored_ball_x,
+            mirrored_ball_y,
+            mirrored_speed_x,
+            mirrored_speed_y,
+            mirrored_paddle_y,
+            opponent_y,
+            dist,
+            vert_diff,
+            coming,
+            0.0,
         ]
 
     def get_right_state(self):
-        """O'ng AI uchun holat (train_ai.py bilan bir xil - o'ng tomonda o'qitilgan)"""
+        paddle_center = (self.right_paddle.y + self.right_paddle.height / 2) / GAME_HEIGHT
         return [
             self.ball.x / GAME_WIDTH,
             self.ball.y / GAME_HEIGHT,
             self.ball.speed_x / 10,
             self.ball.speed_y / 10,
-            self.right_paddle.y / GAME_HEIGHT
+            self.right_paddle.y / GAME_HEIGHT,
+            self.left_paddle.y / GAME_HEIGHT,
+            (self.ball.x - self.right_paddle.x) / GAME_WIDTH,
+            (self.ball.y / GAME_HEIGHT) - paddle_center,
+            1.0 if self.ball.speed_x > 0 else 0.0,
+            0.0,
         ]
 
     def ai_move_left(self):
@@ -215,9 +236,9 @@ class AIVsAI:
         if self.round_num > self.total_rounds:
             self.game_over = True
             if self.left_paddle.score > self.right_paddle.score:
-                self.winner = f"YANGI AI YUTDI! {self.left_paddle.score}:{self.right_paddle.score}"
+                self.winner = f"CHAP AI YUTDI! {self.left_paddle.score}:{self.right_paddle.score}"
             elif self.right_paddle.score > self.left_paddle.score:
-                self.winner = f"ESKI AI YUTDI! {self.right_paddle.score}:{self.left_paddle.score}"
+                self.winner = f"O'NG AI YUTDI! {self.right_paddle.score}:{self.left_paddle.score}"
             else:
                 self.winner = f"DURANG! {self.left_paddle.score}:{self.right_paddle.score}"
 
@@ -241,10 +262,12 @@ class AIVsAI:
         title_text = self.small_font.render(title, True, color_scheme[0])
         self.screen.blit(title_text, (vx + 10, vy + 5))
 
-        cols = [80, 180, 280]
-        input_y = [vy + 55 + i * 42 for i in range(5)]
-        hidden_y = [vy + 40 + i * 48 for i in range(6)]
-        output_y = [vy + 80 + i * 80 for i in range(3)]
+        n_input = len(input_state)
+        n_show = min(n_input, 6)
+        cols = [60, 160, 260]
+        input_y = [vy + 40 + i * 35 for i in range(n_show)]
+        hidden_y = [vy + 30 + i * 40 for i in range(8)]
+        output_y = [vy + 70 + i * 70 for i in range(3)]
 
         input_pos = [(vx + cols[0], iy) for iy in input_y]
         hidden_pos = [(vx + cols[1], hy) for hy in hidden_y]
@@ -252,7 +275,7 @@ class AIVsAI:
 
         for i, ipos in enumerate(input_pos):
             for j, hpos in enumerate(hidden_pos):
-                activation = abs(input_state[i])
+                activation = abs(input_state[i]) if i < len(input_state) else 0
                 c = max(0, min(255, int(80 + 175 * activation)))
                 pygame.draw.line(self.screen, (c, c, 100), ipos, hpos, 1)
 
@@ -262,7 +285,7 @@ class AIVsAI:
                 intensity = max(0, min(255, int(100 + 155 * q_val)))
                 pygame.draw.line(self.screen, (intensity, intensity, 80), hpos, opos, 1)
 
-        for i, (pos, val) in enumerate(zip(input_pos, input_state)):
+        for i, (pos, val) in enumerate(zip(input_pos, input_state[:n_show])):
             activation = abs(val)
             r = max(0, min(255, int(255 * activation)))
             g = max(0, min(255, int(255 * (1 - activation))))
@@ -291,7 +314,7 @@ class AIVsAI:
             q_text = self.tiny_font.render(f"Q:{q_val:.2f}", True, YELLOW)
             self.screen.blit(q_text, (pos[0] + 20, pos[1] + 8))
 
-        y_info = vy + vh - 120
+        y_info = vy + vh - 140
         pygame.draw.rect(self.screen, (40, 40, 50), (vx + 8, y_info, vw - 16, 28))
         act_text = self.small_font.render(f"HARAKAT: {self.output_names[action]}", True, color_scheme[0])
         self.screen.blit(act_text, (vx + 14, y_info + 6))
@@ -324,14 +347,14 @@ class AIVsAI:
 
         self.draw_neural_viz(
             5, 10, viz_width, viz_height,
-            "YANGI AI (CHAP)",
+            "CHAP AI (YASHIL)",
             self.left_input_state, self.left_q_values, self.left_action,
             (GREEN, (0, 200, 100))
         )
 
         self.draw_neural_viz(
             gx + GAME_WIDTH + 5, 10, viz_width, viz_height,
-            "ESKI AI (O'NG)",
+            "O'NG AI (KOK)",
             self.right_input_state, self.right_q_values, self.right_action,
             (BLUE, (100, 150, 255))
         )
@@ -348,8 +371,8 @@ class AIVsAI:
         self.left_paddle.draw(self.screen)
         self.right_paddle.draw(self.screen)
 
-        ls = self.font.render(f"YANGI AI: {self.left_paddle.score}", True, GREEN)
-        rs = self.font.render(f"ESKI AI: {self.right_paddle.score}", True, BLUE)
+        ls = self.font.render(f"CHAP AI: {self.left_paddle.score}", True, GREEN)
+        rs = self.font.render(f"O'NG AI: {self.right_paddle.score}", True, BLUE)
         self.screen.blit(ls, (gx + GAME_WIDTH // 4 - ls.get_width() // 2, gy + 10))
         self.screen.blit(rs, (gx + 3 * GAME_WIDTH // 4 - rs.get_width() // 2, gy + 10))
 
@@ -357,7 +380,7 @@ class AIVsAI:
         self.screen.blit(rt, (cx - rt.get_width() // 2, gy + 10))
 
         if self.game_over:
-            wc = GREEN if "YANGI" in self.winner else BLUE
+            wc = GREEN if "CHAP" in self.winner else BLUE
             wt = self.big_font.render(self.winner, True, wc)
             rxt = self.font.render("SPACE - Yangi o'yin | ESC - Chiqish", True, WHITE)
             self.screen.blit(wt, (gx + GAME_WIDTH // 2 - wt.get_width() // 2,
@@ -373,9 +396,9 @@ class AIVsAI:
 
     def run(self):
         running = True
-        print("\nAI vs AI boshlandi!")
-        print("Chap (Yashil) = YANGI AI")
-        print("O'ng (Ko'k) = ESKI AI")
+        print("\nAI vs AI boshlandi! (4x kuchaytirilgan)")
+        print("Chap (Yashil) = Chap AI")
+        print("O'ng (Kok) = O'ng AI")
         print("ESC - Chiqish\n")
 
         while running:
