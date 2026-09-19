@@ -1,0 +1,7 @@
+# Asosiy kutubxonalar (CPU)
+pygame>=2.5.0
+numpy>=1.24.0
+torch>=2.0.0
+
+# GPU (CUDA 12.1) uchun torch ni alohida o'rnating:
+# pip install torch --index-url https://download.pytorch.org/whl/cu121
